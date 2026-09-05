@@ -1,8 +1,12 @@
 (() => {
   const $ = (s, root = document) => root.querySelector(s);
+  const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   const txt = (s) => ($(s)?.textContent || '').trim();
   let lastRemaining = null;
   let lastName = '';
+  let lastId = '';
+  let lastTotal = 500;
+  let previousRemaining = null;
   let toastTimer;
 
   function toast(message) {
@@ -16,31 +20,34 @@
     el.textContent = message;
     el.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+  }
+
+  async function copy(text, ok = 'Copied. Now make it somebody else’s problem.') {
+    try { await navigator.clipboard.writeText(text); toast(ok); }
+    catch { toast('Copy the page URL and send it to someone dangerous.'); }
   }
 
   async function share(text) {
     const data = { title: 'The Last Ad', text, url: location.origin + '/' };
     try {
       if (navigator.share) return await navigator.share(data);
-      await navigator.clipboard.writeText(`${text} ${data.url}`);
-      toast('Link copied. Bring reinforcements.');
+      await copy(`${text} ${data.url}`, 'Link copied. Bring reinforcements.');
     } catch (e) {
-      if (e?.name !== 'AbortError') toast('Copy the URL and send it to someone dangerous.');
+      if (e?.name !== 'AbortError') toast('Copy the URL and summon the internet.');
     }
   }
 
   function clearLaunchUI() {
-    $('.viral-rail')?.remove();
-    $('.viral-moment')?.remove();
-    document.body.classList.remove('viral-danger', 'viral-critical');
+    $$('.viral-rail,.viral-moment,.viral-orbit,.viral-deathwatch').forEach((n) => n.remove());
+    document.body.classList.remove('viral-danger', 'viral-critical', 'viral-fresh-hit');
   }
 
   function mountRail() {
     if ($('.viral-rail') || !$('.home')) return;
     const rail = document.createElement('div');
     rail.className = 'viral-rail';
-    rail.innerHTML = `<div class="viral-cell viral-live"><i></i><span>Live now</span><strong class="viral-name">—</strong></div><div class="viral-cell viral-actions"><span>Life remaining</span><strong>—</strong></div><div class="viral-cell viral-ended"><span>The graveyard</span><strong>OPEN</strong></div><button class="viral-share" type="button">Summon the internet ↗</button>`;
+    rail.innerHTML = `<div class="viral-cell viral-live"><i></i><span>Live now</span><strong class="viral-name">—</strong></div><div class="viral-cell viral-actions"><span>Life remaining</span><strong>—</strong></div><button class="viral-share" type="button">Summon the internet ↗</button>`;
     const header = $('.header');
     if (header) header.insertAdjacentElement('afterend', rail); else document.body.prepend(rail);
     $('.viral-share', rail)?.addEventListener('click', () => share(`${lastName || 'An ad'} is alive on The Last Ad. ${lastRemaining ?? ''} actions remain. Help decide when it dies.`));
@@ -52,23 +59,59 @@
     if (!queue) return;
     const block = document.createElement('section');
     block.className = 'viral-moment';
-    block.innerHTML = `<div class="viral-moment-inner"><div class="viral-moment-copy"><span class="viral-kicker">Make it a group decision</span><strong>The faster you share it, the shorter this ad lives.</strong></div><div class="viral-moment-actions"><button class="viral-mini viral-copy" type="button">Copy kill link</button><button class="viral-mini viral-native" type="button">Challenge a friend ↗</button></div></div>`;
+    block.innerHTML = `<div class="viral-moment-inner"><div class="viral-moment-copy"><span class="viral-kicker">Group kill switch</span><strong>The faster this gets shared, the shorter this ad lives.</strong></div><div class="viral-moment-actions"><button class="viral-mini viral-copy" type="button">Copy kill link</button><button class="viral-mini viral-native" type="button">Challenge a friend ↗</button></div></div>`;
     queue.insertAdjacentElement('beforebegin', block);
-    $('.viral-copy', block)?.addEventListener('click', async () => {
-      const text = `${lastName || 'This ad'} has ${lastRemaining ?? 'a few'} actions left on The Last Ad. Help end it: ${location.origin}/`;
-      try { await navigator.clipboard.writeText(text); toast('Kill link copied.'); } catch { toast('Copy this page URL to share.'); }
-    });
+    $('.viral-copy', block)?.addEventListener('click', () => copy(`${lastName || 'This ad'} has ${lastRemaining ?? 'a few'} actions left on The Last Ad. Help end it: ${location.origin}/`, 'Kill link copied.'));
     $('.viral-native', block)?.addEventListener('click', () => share(`I took one life off ${lastName || 'this ad'}. Your turn. ${lastRemaining ?? ''} actions remain.`));
+  }
+
+  function mountOrbit() {
+    if ($('.viral-orbit') || !$('.home')) return;
+    const billboard = $('.billboard-frame');
+    if (!billboard) return;
+    const orbit = document.createElement('div');
+    orbit.className = 'viral-orbit';
+    orbit.innerHTML = `<span>NO AUCTION.</span><span>NO FEED.</span><span>JUST ONE AD, DYING IN PUBLIC.</span>`;
+    billboard.insertAdjacentElement('beforebegin', orbit);
+  }
+
+  function mountDeathwatch() {
+    if ($('.viral-deathwatch') || !$('.home')) return;
+    const manifesto = $('.manifesto');
+    if (!manifesto) return;
+    const block = document.createElement('section');
+    block.className = 'viral-deathwatch';
+    block.innerHTML = `<div><span class="viral-kicker">Deathwatch</span><h2>Every visitor becomes part of the timer.</h2><p>This is the anti-feed: one sponsor gets the entire room until the room decides it is over.</p></div><dl><div><dt>Current target</dt><dd class="vd-name">—</dd></div><div><dt>Remaining hits</dt><dd class="vd-left">—</dd></div><div><dt>Death meter</dt><dd class="vd-percent">—</dd></div></dl><button class="viral-mini vd-share" type="button">Post the deathwatch ↗</button>`;
+    manifesto.insertAdjacentElement('beforebegin', block);
+    $('.vd-share', block)?.addEventListener('click', () => share(`${lastName || 'The current ad'} is on deathwatch with ${lastRemaining ?? 'some'} actions left.`));
+  }
+
+  function getRemaining() {
+    const raw = $('.counter')?.textContent?.replace(/\D/g, '');
+    return raw === undefined || raw === '' ? null : Number(raw);
   }
 
   function sync() {
     if (!$('.home')) { clearLaunchUI(); return; }
-    mountRail(); mountMoment();
-    const raw = $('.counter')?.textContent?.replace(/\D/g, '');
-    const remaining = raw === undefined || raw === '' ? null : Number(raw);
+    mountRail(); mountMoment(); mountOrbit(); mountDeathwatch();
+    const remaining = getRemaining();
     const name = txt('.ad-brand');
+    const idText = txt('.mono').replace('/', '').trim();
     if (Number.isFinite(remaining)) lastRemaining = remaining;
     if (name) lastName = name;
+    if (idText) lastId = idText;
+    const takenText = txt('.life-labels span:first-child').replace(/\D/g, '');
+    const totalText = txt('.life-labels span:last-child').replace(/\D/g, '');
+    if (Number(totalText)) lastTotal = Number(totalText);
+    const taken = Number(takenText) || (lastTotal - (lastRemaining ?? lastTotal));
+    const percent = Math.max(0, Math.min(100, Math.round((taken / Math.max(1, lastTotal)) * 100)));
+
+    if (previousRemaining != null && lastRemaining != null && lastRemaining < previousRemaining) {
+      document.body.classList.add('viral-fresh-hit');
+      setTimeout(() => document.body.classList.remove('viral-fresh-hit'), 700);
+    }
+    if (lastRemaining != null) previousRemaining = lastRemaining;
+
     const rail = $('.viral-rail');
     if (rail) {
       const n = $('.viral-name', rail); const a = $('.viral-actions strong', rail);
@@ -76,6 +119,12 @@
       const nextActions = lastRemaining == null ? '—' : String(lastRemaining).padStart(3, '0');
       if (n && n.textContent !== nextName) n.textContent = nextName;
       if (a && a.textContent !== nextActions) a.textContent = nextActions;
+    }
+    const dw = $('.viral-deathwatch');
+    if (dw) {
+      $('.vd-name', dw).textContent = lastName || 'Current ad';
+      $('.vd-left', dw).textContent = lastRemaining == null ? '—' : String(lastRemaining).padStart(3, '0');
+      $('.vd-percent', dw).textContent = `${percent}% gone`;
     }
     document.body.classList.toggle('viral-danger', lastRemaining != null && lastRemaining <= 100);
     document.body.classList.toggle('viral-critical', lastRemaining != null && lastRemaining <= 25);
@@ -89,5 +138,6 @@
   const schedule = () => { if (scheduled) return; scheduled = true; requestAnimationFrame(() => { scheduled = false; sync(); }); };
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   addEventListener('popstate', schedule);
+  addEventListener('visibilitychange', schedule);
   schedule();
 })();
