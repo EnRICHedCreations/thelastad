@@ -64,8 +64,7 @@
   function sync() {
     if (!$('.home')) { clearLaunchUI(); return; }
     mountRail(); mountMoment();
-    const counter = $('.counter');
-    const raw = counter?.textContent?.replace(/\D/g, '');
+    const raw = $('.counter')?.textContent?.replace(/\D/g, '');
     const remaining = raw === undefined || raw === '' ? null : Number(raw);
     const name = txt('.ad-brand');
     if (Number.isFinite(remaining)) lastRemaining = remaining;
@@ -73,12 +72,17 @@
     const rail = $('.viral-rail');
     if (rail) {
       const n = $('.viral-name', rail); const a = $('.viral-actions strong', rail);
-      if (n) n.textContent = lastName || 'ON AIR';
-      if (a) a.textContent = lastRemaining == null ? '—' : String(lastRemaining).padStart(3, '0');
+      const nextName = lastName || 'ON AIR';
+      const nextActions = lastRemaining == null ? '—' : String(lastRemaining).padStart(3, '0');
+      if (n && n.textContent !== nextName) n.textContent = nextName;
+      if (a && a.textContent !== nextActions) a.textContent = nextActions;
     }
     document.body.classList.toggle('viral-danger', lastRemaining != null && lastRemaining <= 100);
     document.body.classList.toggle('viral-critical', lastRemaining != null && lastRemaining <= 25);
-    if (lastName && lastRemaining != null) document.title = `${String(lastRemaining).padStart(3,'0')} left — ${lastName} | The Last Ad`;
+    if (lastName && lastRemaining != null) {
+      const title = `${String(lastRemaining).padStart(3,'0')} left — ${lastName} | The Last Ad`;
+      if (document.title !== title) document.title = title;
+    }
   }
 
   let scheduled = false;
