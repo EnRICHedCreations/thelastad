@@ -30,11 +30,17 @@
     }
   }
 
+  function clearLaunchUI() {
+    $('.viral-rail')?.remove();
+    $('.viral-moment')?.remove();
+    document.body.classList.remove('viral-danger', 'viral-critical');
+  }
+
   function mountRail() {
     if ($('.viral-rail') || !$('.home')) return;
     const rail = document.createElement('div');
     rail.className = 'viral-rail';
-    rail.innerHTML = `<div class="viral-cell viral-live"><i></i><span>Live now</span><strong class="viral-name">—</strong></div><div class="viral-cell viral-actions"><span>Life remaining</span><strong>—</strong></div><div class="viral-cell viral-ended"><span>Sent to graveyard</span><strong>—</strong></div><button class="viral-share" type="button">Summon the internet ↗</button>`;
+    rail.innerHTML = `<div class="viral-cell viral-live"><i></i><span>Live now</span><strong class="viral-name">—</strong></div><div class="viral-cell viral-actions"><span>Life remaining</span><strong>—</strong></div><div class="viral-cell viral-ended"><span>The graveyard</span><strong>OPEN</strong></div><button class="viral-share" type="button">Summon the internet ↗</button>`;
     const header = $('.header');
     if (header) header.insertAdjacentElement('afterend', rail); else document.body.prepend(rail);
     $('.viral-share', rail)?.addEventListener('click', () => share(`${lastName || 'An ad'} is alive on The Last Ad. ${lastRemaining ?? ''} actions remain. Help decide when it dies.`));
@@ -56,22 +62,19 @@
   }
 
   function sync() {
-    if (!$('.home')) return;
+    if (!$('.home')) { clearLaunchUI(); return; }
     mountRail(); mountMoment();
     const counter = $('.counter');
     const raw = counter?.textContent?.replace(/\D/g, '');
-    const remaining = raw ? Number(raw) : null;
+    const remaining = raw === undefined || raw === '' ? null : Number(raw);
     const name = txt('.ad-brand');
-    const ended = txt('.queue-strip') ? null : null;
     if (Number.isFinite(remaining)) lastRemaining = remaining;
     if (name) lastName = name;
     const rail = $('.viral-rail');
     if (rail) {
-      const n = $('.viral-name', rail); const a = $('.viral-actions strong', rail); const g = $('.viral-ended strong', rail);
+      const n = $('.viral-name', rail); const a = $('.viral-actions strong', rail);
       if (n) n.textContent = lastName || 'ON AIR';
       if (a) a.textContent = lastRemaining == null ? '—' : String(lastRemaining).padStart(3, '0');
-      const graveyard = [...document.querySelectorAll('a')].find(x => /graveyard/i.test(x.textContent || ''));
-      if (g) g.textContent = graveyard ? 'ARCHIVE OPEN' : 'LIVE';
     }
     document.body.classList.toggle('viral-danger', lastRemaining != null && lastRemaining <= 100);
     document.body.classList.toggle('viral-critical', lastRemaining != null && lastRemaining <= 25);
