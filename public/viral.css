@@ -1,7 +1,7 @@
 /* The Last Ad — launch layer. Intentionally additive so the core app stays stable. */
 :root{--tla-accent:#ef3f2f;--tla-ink:#11110f;--tla-paper:#f4f1e9;--tla-electric:#dfff00}
 html{scroll-behavior:smooth}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:.025;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E")}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:.035;background:repeating-linear-gradient(0deg,rgba(0,0,0,.14) 0,rgba(0,0,0,.14) 1px,transparent 1px,transparent 3px)}
 .viral-rail{position:sticky;top:0;z-index:80;display:grid;grid-template-columns:1.3fr .8fr .8fr auto;align-items:stretch;background:var(--tla-ink);color:#fff;border-bottom:1px solid rgba(255,255,255,.18);font-family:Inter,system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.12)}
 .viral-cell{min-height:44px;display:flex;gap:9px;align-items:center;padding:0 16px;border-right:1px solid rgba(255,255,255,.16);font-size:11px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;overflow:hidden}
 .viral-cell strong{font-size:13px;letter-spacing:.03em}.viral-live i{width:8px;height:8px;border-radius:50%;background:#ff4d3d;box-shadow:0 0 0 0 rgba(255,77,61,.7);animation:viralPulse 1.6s infinite}.viral-actions strong{font-variant-numeric:tabular-nums;color:var(--tla-electric)}
