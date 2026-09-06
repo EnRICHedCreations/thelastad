@@ -15,7 +15,7 @@ function client(){const jar=new Map();return async(path,method='GET',body,header
 await test('HTTP journey: accounts, moderation, isolation, handoff, archive, security and payment gate',async()=>{
  const visitor=client(),owner=client(),other=client(),operator=client();
  assert.equal((await visitor('/api/health')).status,200);
- for(const path of ['/','/sponsor','/dashboard','/archive','/rules','/terms','/privacy','/admin']){const r=await visitor(path);assert.equal(r.status,200);assert.match(r.data,/<title>The Last Ad/);assert.ok(r.headers.get('content-security-policy'));}
+ for(const path of ['/','/sponsor','/dashboard','/archive','/rules','/terms','/privacy','/admin']){const r=await visitor(path);assert.equal(r.status,200);assert.match(r.data,/<title>[^<]*The Last Ad/);assert.ok(r.headers.get('content-security-policy'));}
  assert.equal((await visitor('/api/dashboard')).status,401);
  assert.equal((await visitor('/api/admin')).status,401);
  const signed=(await visitor('/api/state')).data;assert.equal(signed.current.house,1);assert.ok(!('sponsor_id' in signed.current));
@@ -32,6 +32,9 @@ await test('HTTP journey: accounts, moderation, isolation, handoff, archive, sec
  assert.equal((await other('/api/dashboard')).data.placements.length,0);
  assert.equal((await other(`/api/placements/${id}/reuse`,'POST',{})).status,404);
  assert.equal((await owner(`/api/placements/${id}/checkout`,'POST',{purpose:'placement'})).status,503);
+ assert.equal((await owner(`/api/placements/${id}/bid`,'POST',{roundId:signed.current.id,amount:500})).status,503);
+ assert.equal((await other(`/api/placements/${id}/public-metrics`,'POST',{})).status,404);
+ assert.equal((await visitor('/api/instrument','POST',{event:'made_up'})).status,400);
  const h={authorization:`Bearer ${admin}`};
  assert.equal((await operator(`/api/admin/placements/${id}`,'POST',{action:'approve',note:'Approved for test'},h)).status,200);
  assert.equal((await owner('/api/dashboard')).data.placements[0].status,'approved');
@@ -42,6 +45,10 @@ await test('HTTP journey: accounts, moderation, isolation, handoff, archive, sec
  assert.equal((await visitor(`/api/placements/${id}/view`,'POST',{})).status,200);
  assert.equal((await visitor(`/go/${id}`)).status,302);
  assert.equal((await visitor(`/go/${id}`)).headers.get('location'),'https://openai.com');
+ assert.equal((await visitor('/api/state')).data.current.views,null);
+ assert.equal((await owner(`/api/placements/${id}/public-metrics`,'POST',{})).status,200);
+ assert.equal((await visitor('/api/state')).data.current.views,1);
+ const og=await visitor(`/og/${id}.png`);assert.equal(og.status,200);assert.match(og.headers.get('content-type'),/image\/png/);
  const metrics=(await owner('/api/dashboard')).data.placements[0];assert.equal(metrics.views,1);assert.equal(metrics.clicks,1);assert.equal(metrics.remaining,499);
  assert.equal((await operator(`/api/admin/placements/${id}`,'POST',{action:'end'},h)).status,200);
  assert.ok((await visitor('/api/archive')).data.items.some(p=>p.id===id));

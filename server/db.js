@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { Pool } from 'pg';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {SPECTACLE_SCHEMA,SPECTACLE_TABLES} from './spectacle-schema.js';
 
 export const dataDir = resolve(process.env.DATA_DIR || './data');
 mkdirSync(dataDir, { recursive: true });
@@ -56,4 +57,23 @@ export async function migrate() {
     'CREATE TABLE IF NOT EXISTS resets (token TEXT PRIMARY KEY, sponsor_id TEXT NOT NULL, expires_at BIGINT NOT NULL)'
   ];
   for (const sql of statements) await q(sql);
+  // Additive, atomic upgrade. Existing rows and runtime configuration are preserved.
+  await tx(async db=>{
+    for(const sql of SPECTACLE_SCHEMA)await db(sql);
+    if(postgres){
+      const roles=await db("SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')");
+      for(const table of SPECTACLE_TABLES){
+        await db('ALTER TABLE public.'+table+' ENABLE ROW LEVEL SECURITY');
+        await db('REVOKE ALL ON TABLE public.'+table+' FROM PUBLIC');
+        for(const role of roles)await db('REVOKE ALL ON TABLE public.'+table+' FROM '+role.rolname);
+      }
+    }
+  });
+}
+
+export async function snapshot(fn){
+ if(!postgres){const job=chain.then(()=>fn(q));chain=job.catch(()=>{});return job;}
+ const client=await pool.connect();
+ try{await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const value=await fn(runner(client));await client.query('COMMIT');return value;}
+ catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
