@@ -10,6 +10,7 @@ const requestOrigin=req=>{
   const host=String(req.headers['x-forwarded-host']||req.get('host')||'').split(',')[0].trim();
   return host?`${proto}://${host}`:configuredOrigin();
 };
+const isPreviewCrawler=req=>/twitterbot|facebookexternalhit|linkedinbot|slackbot|discordbot|telegrambot|whatsapp|pinterest|redditbot|googlebot|bingbot|crawler|spider|preview/i.test(String(req.headers['user-agent']||''));
 
 async function placement(id){
   const [p]=await q("SELECT p.*,CASE WHEN c.placement_id IS NULL THEN 0 ELSE 1 END AS metrics_public FROM placements p LEFT JOIN public_metrics_consent c ON c.placement_id=p.id WHERE "+(id?"p.id=? AND p.status IN ('live','ended')":"p.status='live'"),id?[id]:[]);
@@ -70,6 +71,7 @@ export function installShareRoutes(app){
 
   app.get(['/','/archive/:id','/live/:id/:version'],async(req,res,next)=>{
     const isLiveShare=Boolean(req.params.version);
+    if(isLiveShare&&!isPreviewCrawler(req))return res.redirect(302,'/');
     const p=await placement(req.params.id);
     if(!p)return next();
     let html=readFileSync(resolve('dist/index.html'),'utf8');
@@ -82,6 +84,6 @@ export function installShareRoutes(app){
     html=html.replace(/<title>.*?<\/title>/,'<title>'+escape(title)+'</title>').replace(/<meta\s+(?:name|property)="(?:description|og:[^"]+|twitter:[^"]+)"[^>]*>/g,'').replace(/<link\s+rel="canonical"[^>]*>/g,'');
     const alt=`${p.name} — ${ended?'ended':`${p.remaining} lives left`} on The Last Ad`;
     const tags=`<link rel="canonical" href="${escape(url)}"/><meta name="description" content="${escape(description)}"/><meta property="og:title" content="${escape(title)}"/><meta property="og:description" content="${escape(description)}"/><meta property="og:type" content="website"/><meta property="og:url" content="${escape(url)}"/><meta property="og:image" content="${escape(image)}"/><meta property="og:image:secure_url" content="${escape(image)}"/><meta property="og:image:type" content="image/png"/><meta property="og:image:width" content="1200"/><meta property="og:image:height" content="630"/><meta property="og:image:alt" content="${escape(alt)}"/><meta name="twitter:card" content="summary_large_image"/><meta name="twitter:title" content="${escape(title)}"/><meta name="twitter:description" content="${escape(description)}"/><meta name="twitter:image" content="${escape(image)}"/><meta name="twitter:image:alt" content="${escape(alt)}"/>`;
-    res.set({'Cache-Control':'no-store, max-age=0','Pragma':'no-cache','Vary':'Host, X-Forwarded-Host, X-Forwarded-Proto'}).type('html').send(html.replace('</head>',tags+'</head>'));
+    res.set({'Cache-Control':'no-store, max-age=0','Pragma':'no-cache','Vary':'Host, X-Forwarded-Host, X-Forwarded-Proto, User-Agent'}).type('html').send(html.replace('</head>',tags+'</head>'));
   });
 }
