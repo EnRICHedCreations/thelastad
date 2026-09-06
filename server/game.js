@@ -33,7 +33,6 @@ export async function advance(db) {
     const [last] = await db("SELECT sponsor_id FROM placements WHERE status='ended' AND house=0 ORDER BY ended_at DESC LIMIT 1");
     let [next] = await db("SELECT * FROM placements WHERE status='queued' AND (sponsor_id<>? OR sponsor_id IS NULL) ORDER BY queued_at ASC, id ASC LIMIT 1", [last?.sponsor_id || '']);
     if(winningId)[next]=await db("SELECT * FROM placements WHERE id=? AND status='queued'",[winningId]);
-    // A house placement breaks consecutive runs by the same sponsor.
     const [latest] = await db("SELECT house FROM placements WHERE status='ended' ORDER BY ended_at DESC LIMIT 1");
     if (!next && latest?.house) [next] = await db("SELECT * FROM placements WHERE status='queued' ORDER BY queued_at ASC, id ASC LIMIT 1");
     if (!next) {
@@ -54,36 +53,56 @@ export async function advance(db) {
 export const tick = () => tx(advance);
 export function publicPlacement(p) {
   if (!p) return null;
-  const { id,name,headline,description,url,image,theme,status,allowance,remaining,refilled,complimentary,house,created_at,started_at,ended_at,expires_at,reason,views,clicks } = p;
-  return { id,name,headline,description,url,image,theme,status,allowance,remaining,refilled,complimentary,house,created_at,started_at,ended_at,expires_at,reason,views:(p.metrics_public||p.house)?Number(views):null,clicks:(p.metrics_public||p.house)?Number(clicks):null };
+  const { id,name,headline,description,url,image,theme,status,allowance,remaining,refilled,complimentary,house,created_at,started_at,ended_at,expires_at,reason,views,clicks,executioner_handle } = p;
+  return { id,name,headline,description,url,image,theme,status,allowance,remaining,refilled,complimentary,house,created_at,started_at,ended_at,expires_at,reason,views:(p.metrics_public||p.house)?Number(views):null,clicks:(p.metrics_public||p.house)?Number(clicks):null,executioner:executioner_handle||null };
 }
 export async function state(visitor) {
  return snapshot(async db=>{
-  const [p]=await db("SELECT p.*,CASE WHEN c.placement_id IS NULL THEN 0 ELSE 1 END AS metrics_public FROM placements p LEFT JOIN public_metrics_consent c ON c.placement_id=p.id WHERE p.status='live'");
+  const [p]=await db("SELECT p.*,CASE WHEN c.placement_id IS NULL THEN 0 ELSE 1 END AS metrics_public,k.handle AS executioner_handle FROM placements p LEFT JOIN public_metrics_consent c ON c.placement_id=p.id LEFT JOIN kill_claims k ON k.placement_id=p.id WHERE p.status='live'");
   const queue=await db("SELECT * FROM placements WHERE status='queued' ORDER BY queued_at,id LIMIT 6");
   const [totals]=await db("SELECT COUNT(*) AS total_ads, COALESCE(SUM(allowance-remaining),0) AS total_hits, COALESCE(SUM(CASE WHEN status='ended' THEN 1 ELSE 0 END),0) AS ended_ads, COALESCE(SUM(CASE WHEN reason='audience' THEN 1 ELSE 0 END),0) AS killed_ads, COALESCE(SUM(CASE WHEN status='queued' THEN 1 ELSE 0 END),0) AS queued_ads, COALESCE(SUM(refilled),0) AS refills FROM placements WHERE house=0");
   const [hits]=await db("SELECT COUNT(*) AS n FROM audience WHERE placement_id=? AND action='end' AND created_at>?",[p?.id||'',Date.now()-300000]);
-  const recent=p?await db('SELECT id,kind,ordinal,remaining,created_at FROM activity_events WHERE placement_id=? ORDER BY created_at DESC,id DESC LIMIT 6',[p.id]):[];
-  const [acted]=p?await db("SELECT visitor FROM audience WHERE placement_id=? AND visitor=? AND action='end'",[p.id,visitor]):[];
-  const [last]=await db("SELECT p.*,CASE WHEN c.placement_id IS NULL THEN 0 ELSE 1 END AS metrics_public FROM placements p LEFT JOIN public_metrics_consent c ON c.placement_id=p.id WHERE p.status='ended' ORDER BY p.ended_at DESC LIMIT 1");
+  const [saves]=await db("SELECT COUNT(*) AS n FROM audience WHERE placement_id=? AND action='save' AND created_at>?",[p?.id||'',Date.now()-300000]);
+  const [viewers]=await db("SELECT COUNT(*) AS n FROM audience WHERE placement_id=? AND action='view' AND created_at>?",[p?.id||'',Date.now()-300000]);
+  const recent=p?await db('SELECT id,kind,ordinal,remaining,created_at FROM activity_events WHERE placement_id=? ORDER BY created_at DESC,id DESC LIMIT 10',[p.id]):[];
+  const [acted]=p?await db("SELECT visitor FROM audience WHERE placement_id=? AND visitor=? AND action IN ('end','save') LIMIT 1",[p.id,visitor]):[];
+  const [last]=await db("SELECT p.*,CASE WHEN c.placement_id IS NULL THEN 0 ELSE 1 END AS metrics_public,k.handle AS executioner_handle FROM placements p LEFT JOIN public_metrics_consent c ON c.placement_id=p.id LEFT JOIN kill_claims k ON k.placement_id=p.id WHERE p.status='ended' ORDER BY p.ended_at DESC LIMIT 1");
   const [shared]=await db("SELECT COALESCE(SUM(p.views),0) AS shared_views,COALESCE(SUM(p.clicks),0) AS shared_clicks FROM placements p JOIN public_metrics_consent c ON c.placement_id=p.id WHERE p.house=0");
   const [records]=await db("SELECT MIN(ended_at-started_at) AS fastest, MAX(ended_at-started_at) AS longest FROM placements WHERE house=0 AND reason='audience' AND started_at IS NOT NULL");
   const statistics=Object.fromEntries(Object.entries(totals).map(([k,v])=>[k,Number(v)]));
-  return {current:publicPlacement(p),previous:publicPlacement(last),queue:queue.map(publicPlacement),queueCount:statistics.queued_ads,endedCount:statistics.ended_ads,stats:{...statistics,shared_views:Number(shared.shared_views),shared_clicks:Number(shared.shared_clicks),fastest:records.fastest===null?null:Number(records.fastest),longest:records.longest===null?null:Number(records.longest)},activity:recent,hitsLast5Minutes:Number(hits.n),acted:Boolean(acted),rules:RULES,auction:p?await auctionState(db,p.id):null};
+  return {current:publicPlacement(p),previous:publicPlacement(last),queue:queue.map(publicPlacement),queueCount:statistics.queued_ads,endedCount:statistics.ended_ads,stats:{...statistics,shared_views:Number(shared.shared_views),shared_clicks:Number(shared.shared_clicks),fastest:records.fastest===null?null:Number(records.fastest),longest:records.longest===null?null:Number(records.longest)},activity:recent,hitsLast5Minutes:Number(hits.n),savesLast5Minutes:Number(saves.n),viewersLast5Minutes:Number(viewers.n),acted:Boolean(acted),rules:RULES,auction:p?await auctionState(db,p.id):null};
  });
 }
 export async function act(id, visitor) {
   return tx(async db => {
     const p = await advance(db);
     if (p.id !== id) return { stale: true };
+    const [already]=await db("SELECT visitor FROM audience WHERE placement_id=? AND visitor=? AND action IN ('end','save') LIMIT 1",[id,visitor]);
+    if(already)return {duplicate:true};
     const result = await db("INSERT INTO audience(placement_id,visitor,action,created_at) VALUES(?,?,'end',?) ON CONFLICT DO NOTHING RETURNING visitor", [id,visitor,now()]);
     if (!result.length) return { duplicate: true };
     await db('UPDATE placements SET remaining=remaining-1 WHERE id=? AND remaining>0', [id]);
     const ordinal=p.allowance-p.remaining+1,remaining=p.remaining-1;
     await activity(db,id,'hit',ordinal,remaining);
     await event(db,'life_removed',id);
+    if(remaining===0)await db("INSERT INTO kill_claims(placement_id,visitor,hit_ordinal,handle,created_at) VALUES(?,?,?,'',?) ON CONFLICT DO NOTHING",[id,visitor,ordinal,now()]);
     await advance(db);
-    return { counted: true,receipt:{placementId:id,name:p.name,ordinal,remaining,from:p.remaining} };
+    return { counted: true,executioner:remaining===0,receipt:{placementId:id,name:p.name,ordinal,remaining,from:p.remaining} };
+  });
+}
+export async function save(id, visitor) {
+  return tx(async db=>{
+    const p=await advance(db);
+    if(p.id!==id)return {stale:true};
+    const [already]=await db("SELECT visitor FROM audience WHERE placement_id=? AND visitor=? AND action IN ('end','save') LIMIT 1",[id,visitor]);
+    if(already)return {duplicate:true};
+    if(p.remaining>=p.allowance)return {maxed:true};
+    await db("INSERT INTO audience(placement_id,visitor,action,created_at) VALUES(?,?,'save',?)",[id,visitor,now()]);
+    const remaining=Math.min(p.allowance,p.remaining+1);
+    await db('UPDATE placements SET remaining=? WHERE id=?',[remaining,id]);
+    await activity(db,id,'saved',null,remaining);
+    await event(db,'life_saved',id);
+    return {counted:true,receipt:{placementId:id,name:p.name,remaining,from:p.remaining}};
   });
 }
 export async function track(id, visitor, action) {
