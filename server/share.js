@@ -3,8 +3,13 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {q} from './db.js';
 
-const escape=s=>String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
-const canonical=()=>String(process.env.PUBLIC_URL||'https://the-last-ad.apps.deployhatch.com').replace(/\/$/,'');
+const escape=s=>String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot',"'":'&apos;'}[c]));
+const configuredOrigin=()=>String(process.env.PUBLIC_URL||'https://the-last-ad.apps.deployhatch.com').replace(/\/$/,'');
+const requestOrigin=req=>{
+  const proto=String(req.headers['x-forwarded-proto']||req.protocol||'https').split(',')[0].trim();
+  const host=String(req.headers['x-forwarded-host']||req.get('host')||'').split(',')[0].trim();
+  return host?`${proto}://${host}`:configuredOrigin();
+};
 
 async function placement(id){
   const [p]=await q("SELECT p.*,CASE WHEN c.placement_id IS NULL THEN 0 ELSE 1 END AS metrics_public FROM placements p LEFT JOIN public_metrics_consent c ON c.placement_id=p.id WHERE "+(id?"p.id=? AND p.status IN ('live','ended')":"p.status='live'"),id?[id]:[]);
@@ -63,17 +68,20 @@ export function installShareRoutes(app){
     res.type('svg').set('Content-Disposition',`attachment; filename="last-ad-${p.id}.svg"`).send(card(p,true));
   });
 
-  app.get(['/','/archive/:id'],async(req,res,next)=>{
+  app.get(['/','/archive/:id','/live/:id/:version'],async(req,res,next)=>{
+    const isLiveShare=Boolean(req.params.version);
     const p=await placement(req.params.id);
     if(!p)return next();
     let html=readFileSync(resolve('dist/index.html'),'utf8');
     const ended=p.status==='ended';
     const title=ended?`${p.name} — ${p.allowance-p.remaining} hits. Ended. | The Last Ad`:`${p.remaining} lives left — ${p.name} | The Last Ad`;
     const description=ended?`${p.name} had its moment. See the recorded results and death certificate.`:`${p.name} has ${p.remaining} lives left. Every visitor gets one hit. Help end it.`;
-    const url=canonical()+(req.params.id?`/archive/${p.id}`:'/');
-    const image=`${canonical()}/og/${p.id}.png?v=${encodeURIComponent(cardVersion(p))}`;
+    const origin=requestOrigin(req);
+    const url=ended?`${origin}/archive/${p.id}`:isLiveShare?`${origin}/live/${p.id}/${p.remaining}`:`${origin}/`;
+    const image=`${origin}/og/${p.id}.png?v=${encodeURIComponent(cardVersion(p))}`;
     html=html.replace(/<title>.*?<\/title>/,'<title>'+escape(title)+'</title>').replace(/<meta\s+(?:name|property)="(?:description|og:[^"]+|twitter:[^"]+)"[^>]*>/g,'').replace(/<link\s+rel="canonical"[^>]*>/g,'');
-    const tags=`<link rel="canonical" href="${escape(url)}"/><meta name="description" content="${escape(description)}"/><meta property="og:title" content="${escape(title)}"/><meta property="og:description" content="${escape(description)}"/><meta property="og:type" content="website"/><meta property="og:url" content="${escape(url)}"/><meta property="og:image" content="${escape(image)}"/><meta property="og:image:secure_url" content="${escape(image)}"/><meta property="og:image:type" content="image/png"/><meta property="og:image:width" content="1200"/><meta property="og:image:height" content="630"/><meta property="og:image:alt" content="${escape(`${p.name} — ${ended?'ended':`${p.remaining} lives left`} on The Last Ad`)}"/><meta name="twitter:card" content="summary_large_image"/><meta name="twitter:title" content="${escape(title)}"/><meta name="twitter:description" content="${escape(description)}"/><meta name="twitter:image" content="${escape(image)}"/><meta name="twitter:image:alt" content="${escape(`${p.name} — ${ended?'ended':`${p.remaining} lives left`} on The Last Ad`)}"/>`;
-    res.set({'Cache-Control':'no-store, max-age=0','Pragma':'no-cache'}).type('html').send(html.replace('</head>',tags+'</head>'));
+    const alt=`${p.name} — ${ended?'ended':`${p.remaining} lives left`} on The Last Ad`;
+    const tags=`<link rel="canonical" href="${escape(url)}"/><meta name="description" content="${escape(description)}"/><meta property="og:title" content="${escape(title)}"/><meta property="og:description" content="${escape(description)}"/><meta property="og:type" content="website"/><meta property="og:url" content="${escape(url)}"/><meta property="og:image" content="${escape(image)}"/><meta property="og:image:secure_url" content="${escape(image)}"/><meta property="og:image:type" content="image/png"/><meta property="og:image:width" content="1200"/><meta property="og:image:height" content="630"/><meta property="og:image:alt" content="${escape(alt)}"/><meta name="twitter:card" content="summary_large_image"/><meta name="twitter:title" content="${escape(title)}"/><meta name="twitter:description" content="${escape(description)}"/><meta name="twitter:image" content="${escape(image)}"/><meta name="twitter:image:alt" content="${escape(alt)}"/>`;
+    res.set({'Cache-Control':'no-store, max-age=0','Pragma':'no-cache','Vary':'Host, X-Forwarded-Host, X-Forwarded-Proto'}).type('html').send(html.replace('</head>',tags+'</head>'));
   });
 }
