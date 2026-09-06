@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {q} from './db.js';
 
-const escape=s=>String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot',"'":'&apos;'}[c]));
+const escape=s=>String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
 const configuredOrigin=()=>String(process.env.PUBLIC_URL||'https://the-last-ad.apps.deployhatch.com').replace(/\/$/,'');
 const requestOrigin=req=>{
   const proto=String(req.headers['x-forwarded-proto']||req.protocol||'https').split(',')[0].trim();
