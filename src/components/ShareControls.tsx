@@ -2,7 +2,7 @@ import {Copy,Share2,ArrowUpRight,Link} from 'lucide-react';
 import {instrument,duration} from '../lib/api';
 import type {Placement,Receipt} from '../lib/types';
 export function ShareControls({p,receipt,notify,compact=false}:{p:Placement;receipt?:Receipt|null;notify:(s:string)=>void;compact?:boolean}){
- const url=`${location.origin}${p.status==='ended'?`/archive/${p.id}`:'/'}`;
+ const url=`${location.origin}${p.status==='ended'?`/archive/${p.id}`:`/live/${p.id}/${p.remaining}`}`;
  const text=p.status==='ended'?`${p.name} survived ${duration(p)} on The Last Ad. ${p.allowance-p.remaining} audience hits. See its final record.`:receipt?.placementId===p.id?`I took a life off ${p.name}. ${p.remaining} remain. Every visitor gets one hit. Help finish it.`:`${p.name} has ${p.remaining} lives left on The Last Ad. The internet decides when it dies. Take your hit.`;
  async function copy(kind='challenge'){instrument('share_clicked',p.id);try{await navigator.clipboard.writeText(kind==='link'?url:kind==='reddit'?`${p.name} is ${p.status==='ended'?'in the graveyard':`down to ${p.remaining} lives`}. One billboard, one hit per visitor. ${url}`:`${text} ${url}`);instrument('share_copied',p.id);notify(kind==='link'?'Link copied.':'Challenge copied. Bring someone else.');}catch{notify('Clipboard unavailable. Copy the page address to share.');}}
  async function native(){instrument('share_clicked',p.id);try{if(navigator.share)await navigator.share({title:'The Last Ad',text,url});else await copy();}catch(e){if((e as Error).name!=='AbortError')notify('Sharing unavailable. Try copying the link.');}}
