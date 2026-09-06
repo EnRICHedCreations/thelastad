@@ -1,7 +1,8 @@
 import sharp from 'sharp';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {q} from './db.js';
+import {q,tx} from './db.js';
+import {save} from './game.js';
 
 const escape=s=>String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
 const configuredOrigin=()=>String(process.env.PUBLIC_URL||'https://the-last-ad.apps.deployhatch.com').replace(/\/$/,'');
@@ -13,7 +14,7 @@ const requestOrigin=req=>{
 const isPreviewCrawler=req=>/twitterbot|facebookexternalhit|linkedinbot|slackbot|discordbot|telegrambot|whatsapp|pinterest|redditbot|googlebot|bingbot|crawler|spider|preview/i.test(String(req.headers['user-agent']||''));
 
 async function placement(id){
-  const [p]=await q("SELECT p.*,CASE WHEN c.placement_id IS NULL THEN 0 ELSE 1 END AS metrics_public FROM placements p LEFT JOIN public_metrics_consent c ON c.placement_id=p.id WHERE "+(id?"p.id=? AND p.status IN ('live','ended')":"p.status='live'"),id?[id]:[]);
+  const [p]=await q("SELECT p.*,CASE WHEN c.placement_id IS NULL THEN 0 ELSE 1 END AS metrics_public,k.handle AS executioner_handle FROM placements p LEFT JOIN public_metrics_consent c ON c.placement_id=p.id LEFT JOIN kill_claims k ON k.placement_id=p.id WHERE "+(id?"p.id=? AND p.status IN ('live','ended')":"p.status='live'"),id?[id]:[]);
   return p;
 }
 
@@ -24,7 +25,8 @@ function card(p,certificate=false){
   const state=certificate?'CERTIFICATE OF DEATH':ended?'THE GRAVEYARD':'LIVE DEATHWATCH';
   const primary=ended?'ENDED.':String(p.remaining);
   const secondary=ended?`${p.allowance-p.remaining} audience actions · ${minutes} minutes on the billboard`:'LIVES LEFT. HELP END IT.';
-  const footer=`${p.house?'HOUSE AD':p.complimentary?'COMPLIMENTARY PLACEMENT':'SPONSORED PLACEMENT'} / ${ended?(p.reason==='audience'?'ENDED BY THE AUDIENCE':p.reason==='timeout'?'TIME EXPIRED':'ENDED BY OPERATOR'):'THE INTERNET HAS THE LAST WORD'}`;
+  const executioner=ended&&p.executioner_handle?`FINAL HIT: @${p.executioner_handle}`:'';
+  const footer=executioner||`${p.house?'HOUSE AD':p.complimentary?'COMPLIMENTARY PLACEMENT':'SPONSORED PLACEMENT'} / ${ended?(p.reason==='audience'?'ENDED BY THE AUDIENCE':p.reason==='timeout'?'TIME EXPIRED':'ENDED BY OPERATOR'):'THE INTERNET HAS THE LAST WORD'}`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
     <rect width="1200" height="630" fill="#f4f1e9"/>
     <rect x="24" y="24" width="1152" height="582" fill="none" stroke="#171714" stroke-width="2"/>
@@ -41,9 +43,22 @@ function card(p,certificate=false){
 }
 
 const cache=new Map();
-function cardVersion(p){return [p.id,p.remaining,p.status,p.views,p.clicks,p.metrics_public,p.ended_at||0].join('-');}
+function cardVersion(p){return [p.id,p.remaining,p.status,p.views,p.clicks,p.metrics_public,p.executioner_handle||'',p.ended_at||0].join('-');}
 
 export function installShareRoutes(app){
+  app.post('/api/placements/:id/save',async(req,res)=>{
+    if(/bot|crawler|spider|preview/i.test(req.headers['user-agent']||''))return res.status(403).json({error:'Preview bots cannot save ads.'});
+    res.json(await save(req.params.id,req.visitor));
+  });
+
+  app.post('/api/placements/:id/claim',async(req,res)=>{
+    const handle=String(req.body?.handle||'').trim().replace(/^@/,'');
+    if(!/^[A-Za-z0-9_]{1,15}$/.test(handle))return res.status(400).json({error:'Enter a valid X handle (1–15 letters, numbers, or underscores).'});
+    const claimed=await tx(async db=>db("UPDATE kill_claims SET handle=?,claimed_at=? WHERE placement_id=? AND visitor=? RETURNING placement_id",[handle,Date.now(),req.params.id,req.visitor]));
+    if(!claimed.length)return res.status(403).json({error:'Only the browser that landed the final hit can claim this kill.'});
+    res.json({ok:true,handle});
+  });
+
   app.get('/og/:id.png',async(req,res)=>{
     const p=await placement(req.params.id==='live'?null:req.params.id);
     if(!p)return res.sendStatus(404);
@@ -54,13 +69,7 @@ export function installShareRoutes(app){
       if(cache.size>=32)cache.delete(cache.keys().next().value);
       cache.set(key,buffer);
     }
-    res.set({
-      'Content-Type':'image/png',
-      'Content-Length':String(buffer.length),
-      'Cache-Control':'public, max-age=15, s-maxage=15',
-      'Cross-Origin-Resource-Policy':'cross-origin',
-      'Access-Control-Allow-Origin':'*'
-    }).send(buffer);
+    res.set({'Content-Type':'image/png','Content-Length':String(buffer.length),'Cache-Control':'public, max-age=15, s-maxage=15','Cross-Origin-Resource-Policy':'cross-origin','Access-Control-Allow-Origin':'*'}).send(buffer);
   });
 
   app.get('/share/:id.svg',async(req,res)=>{
@@ -71,15 +80,17 @@ export function installShareRoutes(app){
 
   app.get(['/','/archive/:id','/live/:id/:version'],async(req,res,next)=>{
     const isLiveShare=Boolean(req.params.version);
-    if(isLiveShare&&!isPreviewCrawler(req))return res.redirect(302,'/');
+    const saveMode=req.query.mode==='save';
+    if(isLiveShare&&!isPreviewCrawler(req))return res.redirect(302,saveMode?'/?mode=save':'/');
     const p=await placement(req.params.id);
     if(!p)return next();
     let html=readFileSync(resolve('dist/index.html'),'utf8');
     const ended=p.status==='ended';
-    const title=ended?`${p.name} — ${p.allowance-p.remaining} hits. Ended. | The Last Ad`:`${p.remaining} lives left — ${p.name} | The Last Ad`;
-    const description=ended?`${p.name} had its moment. See the recorded results and death certificate.`:`${p.name} has ${p.remaining} lives left. Every visitor gets one hit. Help end it.`;
+    const title=ended?`${p.name} — ${p.allowance-p.remaining} hits. Ended. | The Last Ad`:saveMode?`Save ${p.name} — ${p.remaining} lives left | The Last Ad`:`${p.remaining} lives left — ${p.name} | The Last Ad`;
+    const description=ended?`${p.name} had its moment. See the recorded results and death certificate.`:saveMode?`${p.name} has ${p.remaining} lives left. Their audience is fighting back. Spend your one action to save it.`:`${p.name} has ${p.remaining} lives left. Every visitor gets one hit. Help end it.`;
     const origin=requestOrigin(req);
-    const url=ended?`${origin}/archive/${p.id}`:isLiveShare?`${origin}/live/${p.id}/${p.remaining}`:`${origin}/`;
+    const suffix=saveMode?'?mode=save':'';
+    const url=ended?`${origin}/archive/${p.id}`:isLiveShare?`${origin}/live/${p.id}/${p.remaining}${suffix}`:`${origin}/`;
     const image=`${origin}/og/${p.id}.png?v=${encodeURIComponent(cardVersion(p))}`;
     html=html.replace(/<title>.*?<\/title>/,'<title>'+escape(title)+'</title>').replace(/<meta\s+(?:name|property)="(?:description|og:[^"]+|twitter:[^"]+)"[^>]*>/g,'').replace(/<link\s+rel="canonical"[^>]*>/g,'');
     const alt=`${p.name} — ${ended?'ended':`${p.remaining} lives left`} on The Last Ad`;
