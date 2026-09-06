@@ -10,7 +10,9 @@ export const SPECTACLE_SCHEMA = [
  `CREATE INDEX IF NOT EXISTS product_events_time ON product_events(created_at)`,
  `CREATE INDEX IF NOT EXISTS product_events_dedupe ON product_events(visitor,event,placement_id,created_at)`,
  `CREATE TABLE IF NOT EXISTS public_metrics_consent (placement_id TEXT PRIMARY KEY, consented_at BIGINT NOT NULL)`,
+ `CREATE TABLE IF NOT EXISTS kill_claims (placement_id TEXT PRIMARY KEY, visitor TEXT NOT NULL, hit_ordinal INTEGER NOT NULL, handle TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, claimed_at BIGINT)`,
+ `CREATE INDEX IF NOT EXISTS kill_claims_visitor ON kill_claims(visitor,created_at DESC)`,
  `CREATE INDEX IF NOT EXISTS placements_sponsor_created ON placements(sponsor_id,created_at DESC)`,
  `CREATE INDEX IF NOT EXISTS placements_archive ON placements(ended_at DESC) WHERE status='ended'`
 ];
-export const SPECTACLE_TABLES=['auction_rounds','bids','activity_events','product_events','public_metrics_consent'];
+export const SPECTACLE_TABLES=['auction_rounds','bids','activity_events','product_events','public_metrics_consent','kill_claims'];
